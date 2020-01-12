@@ -1,7 +1,7 @@
 (ns universe.core
   (:require
    [clojure.tools.namespace.repl :refer [refresh]]
-   [taoensso.timbre :refer [debug info warn error spy]]
+   [taoensso.timbre :refer [log debug info warn error spy]]
    ))
 
 ;; body == task runner
@@ -11,42 +11,19 @@
 ;; alert == type of message
 ;; listen == a body subscribing to messages
 
-;;
+;; utils
 
 (defn mk-id
   []
   (str (java.util.UUID/randomUUID)))
 
-;;
+;; state
 
 (def -state-template
   {:messages []
    :cleanup []})
 
 (def state nil)
-
-(defn message
-  [user-msg & [overrides]]
-  (merge
-   {:type :message
-    :id (mk-id)
-    :message-type :signal ;; :request, :response
-    :message user-msg} overrides))
-
-(defn emit-message!
-  [msg]
-  (swap! state update-in [:messages] conj msg)
-  nil)
-
-
-;; hello? is anybody out there?
-;; hello! who are you? what can you do?
-
-(defn body
-  [f]
-  {:type :body
-   :id (mk-id)
-   :func f})
 
 (defn state-bind
   [path callback & {:keys [prefn]}]
@@ -69,8 +46,29 @@
     ;; add a cleanup fn. called on app stop
     (swap! state update-in [:cleanup] conj rmwatch)))
 
+;;
+
+(defn message
+  [user-msg & [overrides]]
+  (merge
+   {:type :message
+    :id (mk-id)
+    :message-type :signal ;; :request, :response
+    :message user-msg} overrides))
+
+(defn emit-message!
+  [msg]
+  (swap! state update-in [:messages] conj msg)
+  nil)
+
+(defn actor
+  [f]
+  {:type :actor
+   :id (mk-id)
+   :func f})
+
 (defn add-listener
-  [body pred]
+  [actor pred]
   (let [callback (fn [old-state new-state]
                    ;; naive. doesn't handle multiple new messages at once, or truncation
                    (let [newest-message (last (:messages new-state))]
@@ -78,7 +76,7 @@
                                 (pred newest-message))
                        (try
                          ;; only emit a response if there was a non-nil result
-                         (when-let [result ((:func body) newest-message)]
+                         (when-let [result ((:func actor) newest-message)]
                            (emit-message! (message result {:message-type :response
                                                            :request-id (:id newest-message)})))
                          (catch Exception unhandled-exception
@@ -86,6 +84,14 @@
                                                                         :request-id (:id newest-message)})))))))
         ]
     (state-bind [:messages] callback)))
+
+(defn add-actor!
+  [actor pred]
+  (swap! state assoc-in [:bodies (:id actor)] actor)
+  (add-listener actor pred)
+  nil)
+
+;; predicates
 
 (defn request?
   [x]
@@ -99,14 +105,21 @@
        (-> x :type (= :message))
        (-> x :message-type (= :response))))
 
-(defn add-body!
-  [body pred]
-  (swap! state assoc-in [:bodies (:id body)] body)
-  (add-listener body pred)
-  nil)
+;; things that do things :)
 
+(defn echo
+  [level]
+  (fn [x]
+    (log level "echo:" x)))
 
-;;
+;; bootstrap
+
+(defn init
+  []
+  (let [request-listener (actor (echo :info))
+        response-listener (actor (echo :warn))]
+    (add-actor! request-listener request?)
+    (add-actor! response-listener response?)))
 
 (defn stop
   [state]
@@ -114,22 +127,6 @@
     (doseq [clean-up-fn (:clean-up @state)]
       (clean-up-fn))
     (alter-var-root #'state (constantly nil))))
-
-(defn echo-info
-  [x]
-  (info "received request:" x))
-
-(defn echo-warn
-  [x]
-  (warn "received response:" x))
-
-(defn init
-  []
-  (let [
-        request-listener (body echo-info)
-        response-listener (body echo-warn)]
-    (add-body! request-listener request?)
-    (add-body! response-listener response?)))
 
 (defn start
   []
