@@ -56,16 +56,16 @@
     :message-type :signal ;; :request, :response
     :message user-msg} overrides))
 
-(defn emit-message!
-  [msg]
-  (swap! state update-in [:messages] conj msg)
-  nil)
-
 (defn actor
   [f]
   {:type :actor
    :id (mk-id)
    :func f})
+
+(defn emit-message!
+  [msg]
+  (swap! state update-in [:messages] conj msg)
+  nil)
 
 (defn add-listener
   [actor pred]
@@ -76,7 +76,7 @@
                                 (pred newest-message))
                        (try
                          ;; only emit a response if there was a non-nil result
-                         (when-let [result ((:func actor) newest-message)]
+                         (when-let [result ((:func actor) (:message newest-message))]
                            (emit-message! (message result {:message-type :response
                                                            :request-id (:id newest-message)})))
                          (catch Exception unhandled-exception
@@ -109,8 +109,20 @@
 
 (defn echo
   [level]
-  (fn [x]
-    (log level "echo:" x)))
+  (fn [msg]
+    (log level "echo:" msg)))
+
+(defn wait
+  [interval-seconds]
+  (fn [msg]
+    (info (format "sleeping for %s seconds..." interval-seconds))
+    (Thread/sleep (* interval-seconds 1000))
+    (info "...done sleeping.")))
+
+(defn inspect-self
+  "receiving a :roll-call request, emits a list of actors and metadata about their functions"
+  [msg]
+  nil)
 
 ;; bootstrap
 
@@ -118,8 +130,13 @@
   []
   (let [request-listener (actor (echo :info))
         response-listener (actor (echo :warn))]
-    (add-actor! request-listener request?)
-    (add-actor! response-listener response?)))
+    ;;(add-actor! request-listener request?)
+    ;;(add-actor! response-listener response?)
+
+    (add-actor! (actor (wait 5)) request?)
+    (add-actor! (actor (echo :info)) request?)
+
+    ))
 
 (defn stop
   [state]
