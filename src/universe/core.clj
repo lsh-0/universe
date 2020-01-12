@@ -4,13 +4,6 @@
    [taoensso.timbre :refer [log debug info warn error spy]]
    ))
 
-;; body == task runner
-;; message == just that
-;; response == type of message
-;; request == type of message
-;; alert == type of message
-;; listen == a body subscribing to messages
-
 ;; utils
 
 (defn mk-id
@@ -74,14 +67,15 @@
                    (let [newest-message (last (:messages new-state))]
                      (when (and newest-message ;; handles message list being emptied
                                 (pred newest-message))
-                       (try
-                         ;; only emit a response if there was a non-nil result
-                         (when-let [result ((:func actor) (:message newest-message))]
-                           (emit-message! (message result {:message-type :response
-                                                           :request-id (:id newest-message)})))
-                         (catch Exception unhandled-exception
-                           (emit-message! (message unhandled-exception {:message-type :response
-                                                                        :request-id (:id newest-message)})))))))
+                       (future
+                         (try
+                           ;; only emit a response if there was a non-nil result
+                           (when-let [result ((:func actor) (:message newest-message))]
+                             (emit-message! (message result {:message-type :response
+                                                             :request-id (:id newest-message)})))
+                           (catch Exception unhandled-exception
+                             (emit-message! (message unhandled-exception {:message-type :response
+                                                                          :request-id (:id newest-message)}))))))))
         ]
     (state-bind [:messages] callback)))
 
@@ -117,7 +111,7 @@
   (fn [msg]
     (info (format "sleeping for %s seconds..." interval-seconds))
     (Thread/sleep (* interval-seconds 1000))
-    (info "...done sleeping.")))
+    (info "...done sleeping. received message:" msg)))
 
 (defn inspect-self
   "receiving a :roll-call request, emits a list of actors and metadata about their functions"
