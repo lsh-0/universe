@@ -4,7 +4,6 @@
    [taoensso.timbre :refer [debug info warn error spy]]
    ))
 
-;; mass == app
 ;; body == task runner
 ;; message == just that
 ;; response == type of message
@@ -21,22 +20,10 @@
 ;;
 
 (def -state-template
-  {:masses {}
-   :messages []
+  {:messages []
    :cleanup []})
 
 (def state nil)
-
-(defn mass
-  []
-  {:type :mass
-   :id (mk-id)
-   :bodies {}})
-
-(defn add-mass!
-  [mass]
-  (swap! state assoc-in [:masses (:id mass)] mass)
-  nil)
 
 (defn message
   [user-msg & [overrides]]
@@ -83,7 +70,7 @@
     (swap! state update-in [:cleanup] conj rmwatch)))
 
 (defn add-listener
-  [mass body pred]
+  [body pred]
   (let [callback (fn [old-state new-state]
                    ;; naive. doesn't handle multiple new messages at once, or truncation
                    (let [newest-message (last (:messages new-state))]
@@ -113,9 +100,9 @@
        (-> x :message-type (= :response))))
 
 (defn add-body!
-  [mass body pred]
-  (swap! state assoc-in [:masses (:id mass) :bodies (:id body)] body)
-  (add-listener mass body pred)
+  [body pred]
+  (swap! state assoc-in [:bodies (:id body)] body)
+  (add-listener body pred)
   nil)
 
 
@@ -138,12 +125,11 @@
 
 (defn init
   []
-  (let [m (mass)
+  (let [
         request-listener (body echo-info)
         response-listener (body echo-warn)]
-    (add-mass! m)
-    (add-body! m request-listener request?)
-    (add-body! m response-listener response?)))
+    (add-body! request-listener request?)
+    (add-body! response-listener response?)))
 
 (defn start
   []
