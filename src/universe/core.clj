@@ -46,6 +46,7 @@
   (merge
    {:type :message
     :id (mk-id)
+    :args nil
     :message-type :signal ;; :request, :response
     :message user-msg} overrides))
 
@@ -87,6 +88,11 @@
 
 ;; predicates
 
+(defn message?
+  [x]
+  (and (map? x)
+       (-> x :type (= :message))))
+
 (defn request?
   [x]
   (and (map? x)
@@ -118,6 +124,11 @@
   [msg]
   nil)
 
+
+(defn message-filter
+  [pred-list]
+  (apply every-pred (into [message?] pred-list)))
+
 ;; bootstrap
 
 (defn init
@@ -129,6 +140,7 @@
 
     (add-actor! (actor (wait 5)) request?)
     (add-actor! (actor (echo :info)) request?)
+    (add-actor! (actor inspect-self) (message-filter [request? #(-> % :request (= :roll-call))]))
 
     ))
 

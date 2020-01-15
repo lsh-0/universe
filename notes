@@ -1,0 +1,34 @@
+case: roll call
+
+emit message "list all actors"
+
+a service that receives unstructured messages converts that to :list-all-actors and re-emits it
+
+a service that handles :list-all-actors requests receives the message
+
+service inspects ...? 
+
+1. global state of all actors
+    - it requires access to `core/state`
+        - simpler in concept
+        - harder to scale code that needs access to app state into different modules
+            - could we have a service that lives in core that returns state values
+                - 'get-state' (service) ...?
+            - service functions need to emit messages
+                - perhaps we invert the dependencies
+                    - services pull in core.clj rather than core.clj pull in services
+                    - services then register themselves
+                        - how? (core/register-service foo)
+                            - register-service ... waits until state is init'ed?
+                                - separate bit of state, just adds service to a list and the list is consumed one app init
+                    - services then have access to core functionality
+                        - like (core/emit-message! (core/message "foo" {:type :request}))
+                        - like (core/request! "list all actors") 
+                            => (core/emit-message! (core/message "list all actors" {:type :request}))
+                           
+
+2. push state into the actors and actors into a hierarchy
+    - we just then need to traverse the tree of relationships to find all actors
+    - emitting a message would be like passing a message up the stack until it encounters a node that has a child that can handle the message
+        - 
+    
