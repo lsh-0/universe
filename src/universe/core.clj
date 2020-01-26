@@ -1,6 +1,7 @@
 (ns universe.core
   (:require
    [clojure.tools.namespace.repl :refer [refresh]]
+   [clojure.core.async :as async :refer [<! >!!]]
    [taoensso.timbre :refer [log debug info warn error spy]]
    ))
 
@@ -13,31 +14,13 @@
 ;; state
 
 (def -state-template
-  {:messages []
-   :cleanup []})
+  {:cleanup []
+   :publication nil ;; async/pub, sends messages to subscribers, if any
+   :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
+})
+
 
 (def state nil)
-
-(defn state-bind
-  [path callback & {:keys [prefn]}]
-  (let [prefn (or prefn identity)
-        has-changed (fn [old-state new-state]
-                      (not= (prefn (get-in old-state path))
-                            (prefn (get-in new-state path))))
-        wid (keyword (gensym callback)) ;; :foo.bar$baz@123456789
-        rmwatch #(remove-watch state wid)]
-
-    (add-watch state wid
-               (fn [_ _ old-state new-state] ;; key, atom, old-state, new-state
-                 (when (has-changed old-state new-state)
-                   ;;(debug (format "path %s triggered %s" path wid))
-                   (try
-                     (callback old-state new-state)
-                     (catch Exception e
-                       (error e "error caught in watch! your callback *must* be catching these or the thread dies silently:" path))))))
-
-    ;; add a cleanup fn. called on app stop
-    (swap! state update-in [:cleanup] conj rmwatch)))
 
 ;;
 
@@ -46,64 +29,41 @@
   (merge
    {:type :message
     :id (mk-id)
-    :args nil
-    :message-type :signal ;; :request, :response
+    :message-type :request ;; :request, :response, :signal, whatever
     :message user-msg} overrides))
 
 (defn actor
-  [f]
-  {:type :actor
-   :id (mk-id)
-   :func f})
+  [f & [more-attrs]]
+  (merge {:type :actor
+          :id (mk-id)
+          :input-chan (async/chan)
+          :func f} more-attrs))
 
 (defn emit-message!
   [msg]
-  (swap! state update-in [:messages] conj msg)
+  (if msg
+    (>!! (:publisher @state) msg)
+    (error "cannot emit 'nil' as a message"))
   nil)
 
-(defn add-listener
-  [actor pred]
-  (let [callback (fn [old-state new-state]
-                   ;; naive. doesn't handle multiple new messages at once, or truncation
-                   (let [newest-message (last (:messages new-state))]
-                     (when (and newest-message ;; handles message list being emptied
-                                (pred newest-message))
-                       (future
-                         (try
-                           ;; only emit a response if there was a non-nil result
-                           (when-let [result ((:func actor) (:message newest-message))]
-                             (emit-message! (message result {:message-type :response
-                                                             :request-id (:id newest-message)})))
-                           (catch Exception unhandled-exception
-                             (emit-message! (message unhandled-exception {:message-type :response
-                                                                          :request-id (:id newest-message)}))))))))
-        ]
-    (state-bind [:messages] callback)))
+(defn -start-listening
+  "assumes that the given actor has been subscribed to a topic"
+  [actor]
+  (debug "actor is listening:" (:id actor))
+  (async/go-loop []
+    (let [msg (<! (:input-chan actor))
+          actor-func (:func actor)]
+      (debug "actor received message:" (:id msg))
+      (emit-message! (message (actor-func (:message msg))
+                              {:message-type :response}))
+      (recur))))
 
-(defn add-actor!
-  [actor pred]
-  (swap! state assoc-in [:bodies (:id actor)] actor)
-  (add-listener actor pred)
-  nil)
-
-;; predicates
-
-(defn message?
-  [x]
-  (and (map? x)
-       (-> x :type (= :message))))
-
-(defn request?
-  [x]
-  (and (map? x)
-       (-> x :type (= :message))
-       (-> x :message-type (= :request))))
-
-(defn response?
-  [x]
-  (and (map? x)
-       (-> x :type (= :message))
-       (-> x :message-type (= :response))))
+(defn add-actor! ;; to 'stage' ? 
+  [actor topic-kw] ;; pred]
+  ;; subscribe actor to incoming messages for the given topic (request/response/broadcast)
+  (async/sub (:publication @state) topic-kw (:input-chan actor))
+  ;; init actor's function. this returns immediately
+  (-start-listening actor))
 
 ;; things that do things :)
 
@@ -119,30 +79,34 @@
     (Thread/sleep (* interval-seconds 1000))
     (info "...done sleeping. received message:" msg)))
 
-(defn inspect-self
-  "receiving a :roll-call request, emits a list of actors and metadata about their functions"
-  [msg]
-  nil)
-
-
-(defn message-filter
-  [pred-list]
-  (apply every-pred (into [message?] pred-list)))
-
 ;; bootstrap
 
-(defn init
+
+(defn actor-init
   []
-  (let [request-listener (actor (echo :info))
-        response-listener (actor (echo :warn))]
+  (let [;;request-listener (actor (echo :info))
+        ;;response-listener (actor (echo :warn))
+        ]
     ;;(add-actor! request-listener request?)
     ;;(add-actor! response-listener response?)
 
-    (add-actor! (actor (wait 5)) request?)
-    (add-actor! (actor (echo :info)) request?)
-    (add-actor! (actor inspect-self) (message-filter [request? #(-> % :request (= :roll-call))]))
+    (add-actor! (actor (wait 5) {:id :wait-actor}) :request)
+    (add-actor! (actor (echo :info) {:id :echo-actor}) :request)
 
-    ))
+    ;;  :topic :roll-call
+    ;;  [request-type topic]
+    ;;  [:request :roll-call]
+    ;;(add-actor! (actor inspect-self) (message-filter [request? #(-> % :request (= :roll-call))]))
+    )
+  nil)
+
+(defn init
+  []
+  ;; todo: any cleanup necessary?
+  (let [publisher (async/chan)
+        publication (async/pub publisher :message-type)]
+    (swap! state merge {:publisher publisher
+                        :publication publication})))
 
 (defn stop
   [state]
@@ -156,7 +120,8 @@
   (if-not state
     (do
       (alter-var-root #'state (constantly (atom -state-template)))
-      (init))
+      (init)
+      (actor-init))
     (warn "application already started")))
 
 (defn restart
