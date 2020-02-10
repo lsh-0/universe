@@ -7,5 +7,6 @@
                  [org.clojure/core.async "0.7.559"]
                  [org.clojure/tools.namespace "0.3.1"]
                  [com.taoensso/timbre "4.10.0"]
+                 [clj-commons/fs "1.5.0"]
                  ]
   :repl-options {:init-ns universe.core})

@@ -3,6 +3,7 @@
    [clojure.tools.namespace.repl :refer [refresh]]
    [clojure.core.async :as async :refer [<! >!!]]
    [taoensso.timbre :refer [log debug info warn error spy]]
+   [me.raynes.fs :as fs]
    ))
 
 ;; utils
@@ -22,15 +23,31 @@
 
 (def state nil)
 
+(def file-dir "resources")
+(def temp-dir "/tmp")
+
 ;;
 
 (defn message
+  "creates a simple message that will go to those listening to the 'off-topic' topic by default"
   [user-msg & [overrides]]
   (merge
    {:type :message
     :id (mk-id)
-    :message-type :request ;; :request, :response, :signal, whatever
-    :message user-msg} overrides))
+    :topic :off-topic
+    :message user-msg ;; absolutely anything
+    :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
+    } overrides))
+
+(defn request
+  "requests are messages with a response channel"
+  [topic-kw user-msg & [overrides]]
+  (message user-msg (merge overrides {:topic topic-kw
+                                      :response-chan (async/chan)})))
+
+;; response ..?
+
+;;
 
 (defn actor
   [f & [more-attrs]]
@@ -39,7 +56,7 @@
           :input-chan (async/chan)
           :func f} more-attrs))
 
-(defn emit-message!
+(defn emit!
   [msg]
   (if msg
     (>!! (:publisher @state) msg)
@@ -52,15 +69,20 @@
   (debug "actor is listening:" (:id actor))
   (async/go-loop []
     (let [msg (<! (:input-chan actor))
-          actor-func (:func actor)]
-      (debug "actor received message:" (:id msg))
-      (emit-message! (message (actor-func (:message msg))
-                              {:message-type :response}))
-      (recur))))
+          actor-func (:func actor)
+          resp-chan (:response-chan msg)]
+      (debug (format "actor '%s' received message: %s" (:id actor) (:id msg)))
+      (when-let [result (actor-func (:message msg))]
+        (info "actor function returned a result...")
+        ;; when there is a result and when we have a response channel, stick the response on the channel
+        (when resp-chan
+          (info "...response channel found, sending result to it" result)
+          (>!! resp-chan result))))
+    (recur)))
 
 (defn add-actor! ;; to 'stage' ? 
-  [actor topic-kw] ;; pred]
-  ;; subscribe actor to incoming messages for the given topic (request/response/broadcast)
+  [actor topic-kw & [more-filter-fns]]
+  ;; subscribe actor to incoming messages for the given topic (request/response/etc)
   (async/sub (:publication @state) topic-kw (:input-chan actor))
   ;; init actor's function. this returns immediately
   (-start-listening actor))
@@ -79,32 +101,57 @@
     (Thread/sleep (* interval-seconds 1000))
     (info "...done sleeping. received message:" msg)))
 
+(defn file-writer
+  [msg]
+  (let [{:keys [filename filebody]} (:message msg)
+        temp-name (str "universe-" (mk-id))
+        filename (or filename temp-name)
+        path (fs/file temp-dir filename)]
+    (spit path filebody)
+    path))
+
+  
+
 ;; bootstrap
 
+;; publication whose topic really is :topic, and it only receives requests
+;; publication whose topic is :origin and it only receives responses to requests
+;; an 'origin' is the sender of a request
+;; so an actor is always subscribed to the ... no this is impractical.
+;; an actor should be able to emit messages like we currently do as well as emit and block until there is a response
+;; what if there is no response? 
 
 (defn actor-init
   []
-  (let [;;request-listener (actor (echo :info))
-        ;;response-listener (actor (echo :warn))
+  (let [;; just prints the message
+        echo-actor (actor (echo :info) {:id :echo-actor})
+
+        ;; acknowledges message then waits before *eventually* printing the message    
+        slow-actor (actor (wait 5) {:id :slow-actor})
+
+        ;; writes message to a named temporary file
+        writer-actor (actor file-writer {:id :writer-actor})
+
+        ;;middleman-actor (actor middleman {:id :middleman})
         ]
-    ;;(add-actor! request-listener request?)
-    ;;(add-actor! response-listener response?)
 
-    (add-actor! (actor (wait 5) {:id :wait-actor}) :request)
-    (add-actor! (actor (echo :info) {:id :echo-actor}) :request)
+    (add-actor! echo-actor :off-topic)
+    (add-actor! slow-actor :off-topic)
 
-    ;;  :topic :roll-call
-    ;;  [request-type topic]
-    ;;  [:request :roll-call]
-    ;;(add-actor! (actor inspect-self) (message-filter [request? #(-> % :request (= :roll-call))]))
+    ;; the middleman receives a request to do a thing.
+    ;; the middleman knows how to craft requests to the writer so they do the job properly
+    ;; the middleman takes credit for the writer-actors work
+    ;;(add-actor! middleman-actor :off-topic)
+    
+    (add-actor! writer-actor :write-file)
+
     )
   nil)
 
 (defn init
   []
-  ;; todo: any cleanup necessary?
   (let [publisher (async/chan)
-        publication (async/pub publisher :message-type)]
+        publication (async/pub publisher :topic)]
     (swap! state merge {:publisher publisher
                         :publication publication})))
 
