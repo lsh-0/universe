@@ -12,6 +12,13 @@
   []
   (str (java.util.UUID/randomUUID)))
 
+(defn seq-to-map
+  "creates a map from an even, sequential, collection of values"
+  [s]
+  (if-not (even? (count s))
+    (error "expected an even number of elements")
+    (->> s (partition 2) (map vec) (into {}))))
+
 ;; state
 
 (def -state-template
@@ -22,6 +29,14 @@
 
 
 (def state nil)
+
+(defn get-state
+  [& path]
+  (if state
+    (if path
+      (get-in @state path)
+      @state)
+    (error "application has not been started, cannot access path:" path)))
 
 (def file-dir "resources")
 (def temp-dir "/tmp")
@@ -41,11 +56,10 @@
 
 (defn request
   "requests are messages with a response channel"
-  [topic-kw user-msg & [overrides]]
-  (message user-msg (merge overrides {:topic topic-kw
-                                      :response-chan (async/chan)})))
-
-;; response ..?
+  [topic-kw user-msg & overrides]
+  (message user-msg (merge (seq-to-map overrides)
+                           {:topic topic-kw
+                            :response-chan (async/chan)})))
 
 ;;
 
@@ -54,13 +68,15 @@
   (merge {:type :actor
           :id (mk-id)
           :input-chan (async/chan)
-          :func f} more-attrs))
+          :func f
+          :raw-messages? false} more-attrs))
 
 (defn emit!
   [msg]
-  (if msg
-    (>!! (:publisher @state) msg)
-    (error "cannot emit 'nil' as a message"))
+  (when-let [publisher (get-state :publisher)]
+    (if msg
+      (>!! publisher msg)
+      (error "cannot emit 'nil' as a message")))
   nil)
 
 (defn -start-listening
@@ -70,9 +86,10 @@
   (async/go-loop []
     (let [msg (<! (:input-chan actor))
           actor-func (:func actor)
-          resp-chan (:response-chan msg)]
+          resp-chan (:response-chan msg)
+          message (if (:raw-messages? actor) msg (:message msg))]
       (debug (format "actor '%s' received message: %s" (:id actor) (:id msg)))
-      (when-let [result (actor-func (:message msg))]
+      (when-let [result (actor-func message)]
         (info "actor function returned a result...")
         ;; when there is a result and when we have a response channel, stick the response on the channel
         (when resp-chan
@@ -83,7 +100,7 @@
 (defn add-actor! ;; to 'stage' ? 
   [actor topic-kw & [more-filter-fns]]
   ;; subscribe actor to incoming messages for the given topic (request/response/etc)
-  (async/sub (:publication @state) topic-kw (:input-chan actor))
+  (async/sub (get-state :publication) topic-kw (:input-chan actor))
   ;; init actor's function. this returns immediately
   (-start-listening actor))
 
@@ -103,13 +120,11 @@
 
 (defn file-writer
   [msg]
-  (let [{:keys [filename filebody]} (:message msg)
-        temp-name (str "universe-" (mk-id))
-        filename (or filename temp-name)
+  (let [{:keys [filename message]} msg
+        filename (or filename (str "universe-" (mk-id)))
         path (fs/file temp-dir filename)]
-    (spit path filebody)
+    (spit path message)
     path))
-
   
 
 ;; bootstrap
@@ -130,7 +145,8 @@
         slow-actor (actor (wait 5) {:id :slow-actor})
 
         ;; writes message to a named temporary file
-        writer-actor (actor file-writer {:id :writer-actor})
+        writer-actor (actor file-writer {:id :writer-actor
+                                         :raw-messages? true})
 
         ;;middleman-actor (actor middleman {:id :middleman})
         ]
@@ -155,6 +171,10 @@
     (swap! state merge {:publisher publisher
                         :publication publication})))
 
+(defn main
+  []
+  (emit! (request :write-file "this content is written to file" :filename "foo.temp")))
+
 (defn stop
   [state]
   (when state
@@ -168,7 +188,10 @@
     (do
       (alter-var-root #'state (constantly (atom -state-template)))
       (init)
-      (actor-init))
+      (actor-init)
+
+      (main)
+      )
     (warn "application already started")))
 
 (defn restart
