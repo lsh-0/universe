@@ -25,7 +25,8 @@
 (defn stop
   [state]
   (when state
-    (doseq [clean-up-fn (:clean-up @state)]
+    (doseq [clean-up-fn (:cleanup @state)]
+      (debug "calling cleanup fn:" clean-up-fn)
       (clean-up-fn))
     (alter-var-root #'core/state (constantly nil))))
 
@@ -34,7 +35,6 @@
   (if-not core/state
     (do
       (alter-var-root #'core/state (constantly (atom core/-state-template)))
-      
       (core/init (find-all-services known-services)))
     (warn "application already started")))
 
