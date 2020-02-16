@@ -9,4 +9,4 @@
                  [com.taoensso/timbre "4.10.0"]
                  [clj-commons/fs "1.5.0"]
                  ]
-  :repl-options {:init-ns universe.core})
+  :repl-options {:init-ns universe.main})

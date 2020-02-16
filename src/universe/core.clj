@@ -25,6 +25,7 @@
   {:cleanup []
    :publication nil ;; async/pub, sends messages to subscribers, if any
    :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
+   :service-list [] ;; list of known services. each service is a map, each map has a function
 })
 
 
@@ -69,7 +70,7 @@
           :id (mk-id)
           :input-chan (async/chan)
           :func f
-          :raw-messages? false} more-attrs))
+          } more-attrs))
 
 (defn emit!
   [msg]
@@ -86,37 +87,39 @@
   (async/go-loop []
     (let [msg (<! (:input-chan actor))
           actor-func (:func actor)
-          resp-chan (:response-chan msg)
-          message (if (:raw-messages? actor) msg (:message msg))]
+          resp-chan (:response-chan msg)]
       (debug (format "actor '%s' received message: %s" (:id actor) (:id msg)))
-      (when-let [result (actor-func message)]
-        (info "actor function returned a result...")
+      (when-let [result (try
+                          (actor-func msg)
+                          (catch Exception e
+                            (error e "unhandled exception while calling actor:" e)))]
+        (debug "actor function returned a non-nil result...")
         ;; when there is a result and when we have a response channel, stick the response on the channel
         (when resp-chan
-          (info "...response channel found, sending result to it" result)
+          (debug "...response channel found, sending result to it" result)
           (>!! resp-chan result))))
     (recur)))
 
 (defn add-actor! ;; to 'stage' ? 
   [actor topic-kw & [more-filter-fns]]
-  ;; subscribe actor to incoming messages for the given topic (request/response/etc)
+  ;; subscribe actor to incoming messages for the given topic
   (async/sub (get-state :publication) topic-kw (:input-chan actor))
   ;; init actor's function. this returns immediately
   (-start-listening actor))
 
-;; things that do things :)
+;; core services
 
 (defn echo
   [level]
-  (fn [msg]
-    (log level "echo:" msg)))
+  (fn [{:keys [message]}]
+    (log level "echo:" message)))
 
 (defn wait
   [interval-seconds]
   (fn [msg]
     (info (format "sleeping for %s seconds..." interval-seconds))
     (Thread/sleep (* interval-seconds 1000))
-    (info "...done sleeping. received message:" msg)))
+    (info "...done sleeping. received message:" (:id msg))))
 
 (defn file-writer
   [msg]
@@ -125,76 +128,46 @@
         path (fs/file temp-dir filename)]
     (spit path message)
     path))
-  
+
+(def service-list
+  [{:id :writer-actor, :topic :write-file, :service file-writer}
+   {:id :echo-actor :service (echo :info)}
+   {:id :slow-actor :service (wait 5)}])
 
 ;; bootstrap
 
-;; publication whose topic really is :topic, and it only receives requests
-;; publication whose topic is :origin and it only receives responses to requests
-;; an 'origin' is the sender of a request
-;; so an actor is always subscribed to the ... no this is impractical.
-;; an actor should be able to emit messages like we currently do as well as emit and block until there is a response
-;; what if there is no response? 
-
-(defn actor-init
-  []
-  (let [;; just prints the message
-        echo-actor (actor (echo :info) {:id :echo-actor})
-
-        ;; acknowledges message then waits before *eventually* printing the message    
-        slow-actor (actor (wait 5) {:id :slow-actor})
-
-        ;; writes message to a named temporary file
-        writer-actor (actor file-writer {:id :writer-actor
-                                         :raw-messages? true})
-
-        ;;middleman-actor (actor middleman {:id :middleman})
-        ]
-
-    (add-actor! echo-actor :off-topic)
-    (add-actor! slow-actor :off-topic)
-
-    ;; the middleman receives a request to do a thing.
-    ;; the middleman knows how to craft requests to the writer so they do the job properly
-    ;; the middleman takes credit for the writer-actors work
-    ;;(add-actor! middleman-actor :off-topic)
-    
-    (add-actor! writer-actor :write-file)
-
-    )
-  nil)
-
-(defn init
-  []
-  (let [publisher (async/chan)
-        publication (async/pub publisher :topic)]
-    (swap! state merge {:publisher publisher
-                        :publication publication})))
-
-(defn main
+(defn test-query
   []
   (emit! (request :write-file "this content is written to file" :filename "foo.temp")))
 
-(defn stop
-  [state]
-  (when state
-    (doseq [clean-up-fn (:clean-up @state)]
-      (clean-up-fn))
-    (alter-var-root #'state (constantly nil))))
+(defn register-service
+  "services are just actors waiting around for stuff they're interested in and then doing it"
+  [service-map]
+  (let [actor-overrides (select-keys service-map [:id])
+        new-actor (actor (:service service-map) actor-overrides)
 
-(defn start
-  []
-  (if-not state
-    (do
-      (alter-var-root #'state (constantly (atom -state-template)))
-      (init)
-      (actor-init)
+        ;; unfinished thought: service-map allows you to specify an actor, multiple topics and for each topic a further list of filters
+        ;; unfinished thought: service-map specifies a :label and not an :id, :ids are generated automatically. this would allow you to specify the same function twice with different topic+filter combinations and keep the label. might be confusing in the logs though ...
+        ;;service-request-overrides (select-keys service-map [:
 
-      (main)
-      )
-    (warn "application already started")))
+        ;; so given an elaborate :topic map, a variable number of actors could be created.
+        ;; each actor created should be added to the service list
+        
+        topic-kw (get service-map :topic :off-topic)]
+    (swap! state update-in [:service-list] conj (add-actor! new-actor topic-kw))))
 
-(defn restart
-  []
-  (stop state)
-  (start))
+(defn register-all-services
+  [service-list]
+  (mapv register-service service-list))
+
+(defn init
+  "app has been started at this point and state is available to be derefed."
+  [& [service-list]]
+  (let [publisher (async/chan)
+        publication (async/pub publisher :topic)]
+    (swap! state merge {:publisher publisher
+                        :publication publication})
+
+    (register-all-services service-list)
+
+    (test-query)))
