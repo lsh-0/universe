@@ -20,7 +20,7 @@
 
 ;;
 
-(def known-services [:core :some-service])
+(def known-services [:core :some-service :poll-service])
 
 (defn stop
   [state]

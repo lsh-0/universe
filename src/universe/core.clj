@@ -60,7 +60,7 @@
 
 (defn request
   "requests are messages with a response channel"
-  [topic-kw user-msg & overrides]
+  [topic-kw & [user-msg [& overrides]]]
   (message user-msg (merge (seq-to-map overrides)
                            {:topic topic-kw
                             :response-chan (async/chan 1)})))
