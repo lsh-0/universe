@@ -13,7 +13,7 @@
           expected {:options {:prompt? false
                               :command-list ["hello?"]}
                     :success? true
-                    :command-history [["hello?" "?"]]}
+                    :command-history [["hello?" nil]]}
           ]
       (is (= expected results))))
 

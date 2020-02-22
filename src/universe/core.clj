@@ -16,7 +16,7 @@
   "creates a map from an even, sequential, collection of values"
   [s]
   (if-not (even? (count s))
-    (error "expected an even number of elements")
+    (error "expected an even number of elements:" s)
     (->> s (partition 2) (map vec) (into {}))))
 
 ;; state
@@ -104,24 +104,28 @@
   (async/go-loop []
     (when-let [msg (<! (:input-chan actor))]
       (let [actor-func (:func actor)
-            resp-chan (:response-chan msg)]
-        
-        (debug (format "actor '%s' received message: %s" (:id actor) msg))
-        (when-let [result (try
-                            (actor-func msg)
-                            (catch Exception e
-                              (error e "unhandled exception while calling actor:" e)))]
-          (debug "actor function returned a non-nil result...")
-          ;; when there is a result and when we have a response channel, stick the response on the channel
-          (when resp-chan
-            (debug "...response channel found, sending result to it" result)
-            (>! resp-chan result)
-            ;; this implies a single response only. 
-            (async/close! resp-chan)))
-        (recur))
+            resp-chan (:response-chan msg)
 
-      ;; message was nil (channel closed), die
-      )))
+            _ (debug (format "actor '%s' received message: %s" (:id actor) msg))
+
+            result (try
+                     (actor-func msg)
+                     (catch Exception e
+                       (error e "unhandled exception while calling actor:" e)))
+            ]
+        ;; when there is a response channel, stick the response on the channel, even if the response is nil
+        (when resp-chan
+          (debug "...response channel found, sending result to it" result)
+          (>! resp-chan result)
+          ;; this implies a single response only. 
+          (when-not result
+            ;; result was non-nil, close channel properly
+            (async/close! resp-chan)))
+
+        (recur)))
+
+    ;; message was nil (channel closed), die
+    ))
 
 (defn add-actor! ;; to 'stage' ? 
   [actor topic-kw & [more-filter-fns]]
@@ -146,9 +150,10 @@
 
 (defn file-writer
   [msg]
-  (let [{:keys [filename message]} msg
+  (let [{:keys [filename message]
+         :or {filename (str "universe-" (mk-id)), message "bork bork bork"}} msg
         filename (or filename (str "universe-" (mk-id)))
-        path (fs/file temp-dir filename)]
+        path (str (fs/file temp-dir filename))]
     (spit path message)
     path))
 
