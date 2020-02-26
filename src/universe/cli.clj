@@ -42,17 +42,26 @@
 
 (defn respond
   [message]
-  (if (clojure.string/starts-with? message ":")
+  (cond
+    (not (core/started?)) "(the application hasn't been started yet, sorry)"
+
+    (clojure.string/starts-with? message ":")
     ;; assume a command is to be run and the first argument is the topic
     (let [tokens (parse message)
           topic-kw (-> tokens first (subs 1) keyword) ;; [":echo" ...] => :echo
           request (apply core/request (into [topic-kw] (rest tokens)))
+          _ (info (core/get-state :known-topics))
           ]
-      (core/emit! request)
-      (<!! (:response-chan request)))
-    
-    ;; just text, don't wait for a response
-    (core/emit! (core/message message))))
+
+      ;; rather than rely on core/safe-message to redirect our message, return early now
+      (if-not (core/known-topic? topic-kw)
+        (format "(the application isn't listening to '%s' commands)" topic-kw)
+        (do
+          (core/emit! request)
+          (<!! (:response-chan request)))))
+
+    ;; app has been started but input is just regular text, emit message and don't wait for a response
+    :else (core/emit! (core/message message))))
 
 (defn retprn
   [x]
@@ -81,7 +90,7 @@
                     (read-single-line)))]
       (if-not cmd
         ;; no commands left and no prompting allowed, return command history
-        {:success? true, :command-history command-history, :options {:prompt? prompt? :command-list command-list}}
+        {:command-history command-history, :options {:prompt? prompt? :command-list command-list}}
         ;; ask for a response to given command (which may have come from user
         (recur (next command-list)
                (conj command-history [cmd (retprn (respond cmd))]))))))

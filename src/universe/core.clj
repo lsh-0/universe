@@ -26,13 +26,18 @@
    :publication nil ;; async/pub, sends messages to subscribers, if any
    :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
    :service-list [] ;; list of known services. each service is a map, each map has a function
+   :known-topics #{}
 })
 
 (def state nil)
 
+(defn started?
+  []
+  (some? state))
+
 (defn get-state
   [& path]
-  (if state
+  (if (started?)
     (if path
       (get-in @state path)
       @state)
@@ -47,20 +52,35 @@
 
 ;;
 
+(defn known-topic?
+  "returns true if somebody is listening for messages on this topic"
+  [topic-kw]
+  (contains? (get-state :known-topics) topic-kw))
+
+(defn safe-topic
+  "if nobody is listening for the given topic, replaces it with :off-topic"
+  [topic-kw]
+  (if-not (known-topic? topic-kw) :off-topic topic-kw))
+
+(defn safe-message
+  [msg]
+  (update-in msg [:topic] safe-topic))
+
 (defn message
   "creates a simple message that will go to those listening to the 'off-topic' topic by default"
   [user-msg & [overrides]]
-  (merge
-   {:type :message
-    :id (mk-id)
-    :topic :off-topic
-    :message user-msg ;; absolutely anything
-    :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
-    } overrides))
+  (safe-message (merge
+                 {:type :message
+                  :id (mk-id)
+                  :topic :off-topic
+                  :message user-msg ;; absolutely anything
+                  :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
+                  } overrides)))
 
 (defn request
   "requests are messages with a response channel"
   [topic-kw & [user-msg [& overrides]]]
+  ;;(info "got topic" topic-kw "message" user-msg "overrides" overrides)
   (message user-msg (merge (seq-to-map overrides)
                            {:topic topic-kw
                             :response-chan (async/chan 1)})))
@@ -116,11 +136,10 @@
         ;; when there is a response channel, stick the response on the channel, even if the response is nil
         (when resp-chan
           (debug "...response channel found, sending result to it" result)
-          (>! resp-chan result)
           ;; this implies a single response only. 
-          (when-not result
-            ;; result was non-nil, close channel properly
-            (async/close! resp-chan)))
+          (when result
+            (>! resp-chan result))
+          (async/close! resp-chan))
 
         (recur)))
 
@@ -137,9 +156,11 @@
 ;; core services
 
 (defn echo
+  "echos the given message to the logger and returns the message as-is so a response channel can return it"
   [level]
   (fn [{:keys [message]}]
-    (log level "echo:" message)))
+    (log level "echo:" message)
+    message))
 
 (defn wait
   [interval-seconds]
@@ -157,10 +178,17 @@
     (spit path message)
     path))
 
+;; todo: services that:
+;; * change log level
+;; * store relationships in persistant storage
+;; * 
 (def service-list
-  [{:id :writer-actor, :topic :write-file, :service file-writer}
+  [{:id :writer-actor :topic :write-file :service file-writer}
+   {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing
+   
    {:id :echo-actor :service (echo :info)}
-   {:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}])
+   ;;{:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}
+   ])
 
 ;; bootstrap
 
@@ -195,6 +223,7 @@
 
         ]
     (swap! state update-in [:service-list] conj new-actor)
+    (swap! state update-in [:known-topics] conj topic-kw) 
     (add-cleanup close-actor-incoming)
     (add-cleanup rm-actor))
   nil)
