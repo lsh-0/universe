@@ -43,24 +43,37 @@
 (defn respond
   [message]
   (cond
+    ;; you won't get a useful response if the app hasn't been started
     (not (core/started?)) "(the application hasn't been started yet, sorry)"
 
-    (clojure.string/starts-with? message ":")
     ;; assume a command is to be run and the first argument is the topic
+    (clojure.string/starts-with? message ":")
     (let [tokens (parse message)
           topic-kw (-> tokens first (subs 1) keyword) ;; [":echo" ...] => :echo
-          request (apply core/request (into [topic-kw] (rest tokens)))
-          _ (info (core/get-state :known-topics))
-          ]
-
-      ;; rather than rely on core/safe-message to redirect our message, return early now
-      (if-not (core/known-topic? topic-kw)
+          args (rest tokens)
+          ;; a single argument after a topic is allowed, otherwise it has to be an even number of forms
+          kwargs (spy (if (= (count args) 1)
+                   {:message (first args)}
+                   (core/seq-to-map args)))
+          request (core/request topic-kw kwargs)]
+      (cond
+        ;; couldn't parse rest of tokens, fail rather than persevere
+        (and (not (empty? (rest tokens)))
+             (not kwargs)) "(I need an even number of arguments following the topic keyword)"
+        
+        ;; given topic doesn't exist
+        ;; rather than rely on core/safe-message to redirect our message, return early now
+        (not (core/known-topic? topic-kw))
         (format "(the application isn't listening to '%s' commands)" topic-kw)
+
+        ;; all good :) send message, wait for response
+        :else
         (do
           (core/emit! request)
           (<!! (:response-chan request)))))
 
-    ;; app has been started but input is just regular text, emit message and don't wait for a response
+    ;; app *has* been started but input is just regular text
+    ;; emit as a message and don't wait for a response
     :else (core/emit! (core/message message))))
 
 (defn retprn

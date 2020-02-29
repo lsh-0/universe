@@ -22,7 +22,7 @@
 
 ;;
 
-(def known-services [:core :some-service :poll-service])
+(def known-services [:core :some-service :poll-service :off-topic-recorder])
 
 (defn stop
   [state]
@@ -49,6 +49,7 @@
 
 (defn test
   [& [ns-kw fn-kw]]
+  (stop core/state)
   (clojure.tools.namespace.repl/refresh) ;; reloads all namespaces, including test ones
   (try
     (logging/set-level! :debug)

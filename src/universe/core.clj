@@ -69,21 +69,21 @@
 (defn message
   "creates a simple message that will go to those listening to the 'off-topic' topic by default"
   [user-msg & [overrides]]
-  (safe-message (merge
-                 {:type :message
-                  :id (mk-id)
-                  :topic :off-topic
-                  :message user-msg ;; absolutely anything
-                  :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
-                  } overrides)))
+  (merge
+   {:type :message
+    :id (mk-id)
+    :topic :off-topic
+    :message user-msg ;; absolutely anything
+    :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
+    } overrides))
 
 (defn request
   "requests are messages with a response channel"
-  [topic-kw & [user-msg [& overrides]]]
+  [topic-kw & [overrides]]
   ;;(info "got topic" topic-kw "message" user-msg "overrides" overrides)
-  (message user-msg (merge (seq-to-map overrides)
-                           {:topic topic-kw
-                            :response-chan (async/chan 1)})))
+  (message (:message overrides) ;; may be nil
+           {:topic topic-kw
+            :response-chan (async/chan 1)}))
 
 (defn close-chan!
   "closes channel and empties it of any unconsumed items.
@@ -194,7 +194,8 @@
 
 (defn test-query
   []
-  (emit! (request :write-file "this content is written to file" :filename "foo.temp")))
+  (emit! (request :write-file {:message "this content is written to file"
+                               :filename "foo.temp"})))
 
 (defn register-service
   "services are just actors waiting around for stuff they're interested in and then doing it"
