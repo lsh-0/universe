@@ -76,6 +76,7 @@
     :topic :off-topic
     :message user-msg ;; absolutely anything
     :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
+    :internal? false
     } overrides))
 
 (defn request
@@ -85,6 +86,12 @@
   (message (:message overrides) ;; may be nil
            {:topic topic-kw
             :response-chan (async/chan 1)}))
+
+(defn internal-request
+  "just like `request`, but response is not preserved in `:results-list`.
+  recommended for services talking to other services."
+  [topic-kw & [overrides]]
+  (request topic-kw (merge overrides :internal? true)))
 
 (defn close-chan!
   "closes channel and empties it of any unconsumed items.
@@ -136,9 +143,9 @@
             ]
 
         ;; when there is a result, add it to the results list
-        ;; todo: even for 'internal' requests between services ...?
         ;; todo: the size of this could get out of hand for long running programs. perhaps limit size to N items
-        (when result
+        (when (and result
+                   (not (:internal? result)))
           (info "actor" actor "result" result)
           (swap! state update-in [:results-list] conj result))
 
