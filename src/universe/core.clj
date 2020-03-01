@@ -26,7 +26,8 @@
    :publication nil ;; async/pub, sends messages to subscribers, if any
    :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
    :service-list [] ;; list of known services. each service is a map, each map has a function
-   :known-topics #{}
+   :results-list [] ;; list of non-nil responses to requests
+   :known-topics #{} ;; set of all known available topics
 })
 
 (def state nil)
@@ -133,6 +134,14 @@
                      (catch Exception e
                        (error e "unhandled exception while calling actor:" e)))
             ]
+
+        ;; when there is a result, add it to the results list
+        ;; todo: even for 'internal' requests between services ...?
+        ;; todo: the size of this could get out of hand for long running programs. perhaps limit size to N items
+        (when result
+          (info "actor" actor "result" result)
+          (swap! state update-in [:results-list] conj result))
+
         ;; when there is a response channel, stick the response on the channel, even if the response is nil
         (when resp-chan
           (debug "...response channel found, sending result to it" result)
@@ -156,11 +165,10 @@
 ;; core services
 
 (defn echo
-  "echos the given message to the logger and returns the message as-is so a response channel can return it"
+  "echos the given message to the logger and returns nil."
   [level]
   (fn [{:keys [message]}]
-    (log level "echo:" message)
-    message))
+    (log level "echo:" message)))
 
 (defn wait
   [interval-seconds]
@@ -185,6 +193,7 @@
 (def service-list
   [{:id :writer-actor :topic :write-file :service file-writer}
    {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing
+   {:id :repeat-actor :topic :repeat :service :message} ;; for testing
    
    {:id :echo-actor :service (echo :info)}
    ;;{:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}

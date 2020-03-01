@@ -22,7 +22,7 @@
 
 ;;
 
-(def known-services [:core :some-service :poll-service :off-topic-recorder])
+(def known-services [:core :some-service :poll-service])
 
 (defn stop
   [state]

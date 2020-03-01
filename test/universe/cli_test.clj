@@ -41,7 +41,19 @@
                                 :command-list [":echo \"perfect day\""]})
             expected {:options {:prompt? false
                                 :command-list [":echo \"perfect day\""]}
-                      :command-history [[":echo \"perfect day\"" "perfect day"]]}
+                      ;; (the :echo service doesn't return anything)
+                      :command-history [[":echo \"perfect day\"" nil]]}
+            ]
+        (is (= expected results)))))
+
+  (testing "the CLI will emit a *request* and capture any response"
+    (with-running-app
+      (let [results (cli/start {:prompt? false
+                                :command-list [":repeat \"perfect day\""]})
+            expected {:options {:prompt? false
+                                :command-list [":repeat \"perfect day\""]}
+                      ;; (the :repeat service is like the :echo service, but returns it's input rather than logging it)
+                      :command-history [[":repeat \"perfect day\"" "perfect day"]]}
             ]
         (is (= expected results)))))
 
