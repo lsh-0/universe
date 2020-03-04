@@ -223,6 +223,50 @@
 
         :else (filterv predicate last-result)))))
 
+(defn selecter
+  [msg]
+  (let [known-selectors {"all" identity}
+        selector (:message msg)
+
+        int-or-nil (fn [x]
+                     (try
+                       (Integer. x)
+                       (catch NumberFormatException e
+                         nil)))
+
+        all-results (get-state :results-list)
+        num-results (count all-results)
+
+        
+        idx (int-or-nil selector)
+        idx (cond
+              (pos-int? idx) (when-not (> idx num-results)
+                               idx)
+
+              (neg-int? idx) (let [neg-idx (- (count all-results) (- idx))]
+                               (when-not (neg-int? neg-idx)
+                                 neg-idx))
+
+              ;; zero
+              :else idx)]
+    (when selector
+      (cond
+        ;; bogus input, returning nothing
+        (nil? selector) nil
+
+        ;; human readable cases
+        (contains? known-selectors selector) ((known-selectors selector) all-results)
+
+        ;; todo: slicing by pattern. 1-2,1-*,-1
+        
+        ;; lastly, try indexing straight into the results
+
+        ;; given index couldn't be coerced or was too positive or too negative. return nothing
+        (nil? idx) nil
+        
+
+        :else (.get all-results idx)))))
+
 ;; todo: services that:
 ;; * change log level
 ;; * store relationships in persistant storage
@@ -231,6 +275,7 @@
   [{:id :writer-actor :topic :write-file :service file-writer}
    {:id :forwarder :topic :|forward :service forwarder}
    {:id :filterer :topic :|filter :service filterer}
+   {:id :selecter :topic :select :service selecter}
 
    {:id :echo-actor :service (echo :info)} ;; off-topic echo
    {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing

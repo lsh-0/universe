@@ -92,4 +92,37 @@
                                         [":|filter alpha?" "Hi There"]]}
             ]
         (is (= expected results)))))
+
+  (testing "the 'select' service takes a slice expression and returns those selected results from the results list as a new result"
+    (with-running-app
+      (let [results (cli/start {:prompt? false
+                                :command-list [":repeat hi"    ;; 0 , -7
+                                               ":repeat there" ;; 1 , -6
+                                               ":select all"   ;; 2 , -5
+                                               ":select 0"     ;; 3 , -4
+                                               ":select 1"     ;; 4 , -3
+                                               ":select 2"     ;; 5 , -2
+                                               ":select -4"    ;; 6 , -1
+                                               ]})
+            expected {:options {:prompt? false
+                                :command-list [":repeat hi"
+                                               ":repeat there"
+                                               ":select all"
+                                               ":select 0"
+                                               ":select 1"
+                                               ":select 2"
+                                               ":select -4"
+                                               ]}
+                      :command-history [[":repeat hi" "hi"]
+                                        [":repeat there" "there"]
+                                        [":select all" ["hi" "there"]]
+                                        [":select 0" "hi"]
+                                        [":select 1" "there"]
+                                        [":select 2" ["hi" "there"]]
+                                        [":select -4" ["hi" "there"]]]}
+
+            ]
+        (is (= expected results)))))
+
+
   )
