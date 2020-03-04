@@ -116,7 +116,7 @@
           :func f
           } more-attrs))
 
-(defn emit!
+(defn emit
   [msg]
   (when-let [publisher (get-state :publisher)]
     (if msg
@@ -124,6 +124,13 @@
         (>! publisher msg))
       (error "cannot emit 'nil' as a message")))
   nil)
+
+(defn emit-and-wait
+  "like `emit`, but will wait (block) for a response to the message if the message has a response channel"
+  [msg]
+  (emit msg)
+  (when-let [chan (:response-chan msg)]
+    (<!! chan)))
 
 (defn -start-listening
   "assumes that the given actor has been subscribed to a topic"
@@ -193,16 +200,28 @@
     (spit path message)
     path))
 
+(defn forward
+  "given a topic, sends a request to it with the last response as the message body"
+  [msg & [overrides]]
+  (let [topic-kw (some-> msg :message (subs 1) keyword)
+        last-result (-> (get-state :results-list) last)]
+    (when (and topic-kw
+               last-result)
+      (emit-and-wait (request topic-kw {:message last-result})))))
+
 ;; todo: services that:
 ;; * change log level
 ;; * store relationships in persistant storage
 ;; * 
 (def service-list
   [{:id :writer-actor :topic :write-file :service file-writer}
+   {:id :forwarder :topic :forward :service forward}
+
+   {:id :echo-actor :service (echo :info)} ;; off-topic echo
    {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing
+
    {:id :repeat-actor :topic :repeat :service :message} ;; for testing
    
-   {:id :echo-actor :service (echo :info)}
    ;;{:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}
    ])
 
@@ -210,7 +229,7 @@
 
 (defn test-query
   []
-  (emit! (request :write-file {:message "this content is written to file"
+  (emit (request :write-file {:message "this content is written to file"
                                :filename "foo.temp"})))
 
 (defn register-service
