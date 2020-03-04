@@ -4,6 +4,7 @@
    [clojure.core.async :as async :refer [<! >! >!! <!! go]]
    [taoensso.timbre :refer [log debug info warn error spy]]
    [me.raynes.fs :as fs]
+   [universe.utils :as utils]
    ))
 
 ;; utils
@@ -158,7 +159,7 @@
 
         ;; when there is a response channel, stick the response on the channel, even if the response is nil
         (when resp-chan
-          (debug "...response channel found, sending result to it" result)
+          (debug "...response channel found, sending result to it:" result)
           ;; this implies a single response only. 
           (when result
             (>! resp-chan result))
@@ -200,14 +201,27 @@
     (spit path message)
     path))
 
-(defn forward
+(defn forwarder
   "given a topic, sends a request to it with the last response as the message body"
   [msg & [overrides]]
   (let [topic-kw (some-> msg :message (subs 1) keyword)
         last-result (-> (get-state :results-list) last)]
     (when (and topic-kw
                last-result)
-      (emit-and-wait (request topic-kw {:message last-result})))))
+      (emit-and-wait (request topic-kw (merge overrides {:message last-result}))))))
+
+(defn filterer
+  [msg]
+  (let [known-predicates {"alpha?" (partial re-matches #"[a-zA-Z_\- ]")}
+        predicate-key (:message msg)
+        predicate (get known-predicates predicate-key)
+        last-result (-> (get-state :results-list) last)]
+    (when (and predicate
+               last-result)
+      (cond
+        (string? last-result) (utils/string-filter predicate last-result)
+
+        :else (filterv predicate last-result)))))
 
 ;; todo: services that:
 ;; * change log level
@@ -215,7 +229,8 @@
 ;; * 
 (def service-list
   [{:id :writer-actor :topic :write-file :service file-writer}
-   {:id :forwarder :topic :forward :service forward}
+   {:id :forwarder :topic :|forward :service forwarder}
+   {:id :filterer :topic :|filter :service filterer}
 
    {:id :echo-actor :service (echo :info)} ;; off-topic echo
    {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing

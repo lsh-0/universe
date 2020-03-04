@@ -67,18 +67,29 @@
             ]
         (is (= expected results)))))
 
-
   (testing "the 'forward' service can access the previous result and use it as the input for the next result"
     (with-running-app
       (let [results (cli/start {:prompt? false
                                 :command-list [":repeat hi"
-                                               ":forward :repeat"]})
+                                               ":|forward :repeat"]})
             expected {:options {:prompt? false
                                 :command-list [":repeat hi"
-                                               ":forward :repeat"]}
+                                               ":|forward :repeat"]}
                       :command-history [[":repeat hi" "hi"]
-                                        [":forward :repeat" "hi"]]}
+                                        [":|forward :repeat" "hi"]]}
+            ]
+        (is (= expected results)))))
+
+  (testing "the 'filter' service takes a predicate and applies it to each of the previous items"
+    (with-running-app
+      (let [results (cli/start {:prompt? false
+                                :command-list [":repeat \"Hi There!!\""
+                                               ":|filter alpha?"]})
+            expected {:options {:prompt? false
+                                :command-list [":repeat \"Hi There!!\""
+                                               ":|filter alpha?"]}
+                      :command-history [[":repeat \"Hi There!!\"" "Hi There!!"]
+                                        [":|filter alpha?" "Hi There"]]}
             ]
         (is (= expected results)))))
   )
-
