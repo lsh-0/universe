@@ -1,0 +1,113 @@
+1. I have a friendly place where I can send messages to my program and see responses
+
+    for example, I ask for a directory listing of my music directory
+    I have to explicitly make the request though
+
+2. I can create new content simply by typing
+
+    I need to feel secure that whatever I type *won't* be sent off as a *request* (vs a message) to do other things
+        - cases not covered: pasting a block of text with one line that starts with a colon
+
+3. I can take a response and send it to another command
+
+    for example, I can take a directory listing response and pass it to the 'find-music' command.
+    I can take the output of the 'find-music' command and write it to a file
+
+
+    "forwarding" ?
+
+    responses are nothing fancy, they're just plain values. 
+    in this case, taking an output value and using it as input is just creating a segment of pipe.
+    the input service may not be compatible with the response
+    
+    in a gui, I could select an item and then perform actions on it
+    in the repl I can store the result and use that, programmatically
+    so in a CLI, how do I 'select' results?
+        - the last result could be automatically selected. this is a solid mental model
+        - there could be a command to use an arbitrarily old result
+    in a CLI, how do I use a service with a result
+        - threaded, like in clojure with -> and ->> ?
+            - -> :topic-kw args => (:topic-kw result args)
+            - urgh, more syntax
+        - howabout
+            - :forward :topic-kw any other args
+            - which will call a 'forward' service that takes the topic to forward to, the last response and any further args
+        - in which case, we need something heftier than an offtopic recorder
+            - the cli will need a 'cli-recorder'
+                - really? this will tie the cli to this forward service
+            - global response register?
+                - all responses to everything are stored in memory
+                    - I guess we could tune this as well. the last five responses. N amount of memory...
+
+4. I can filter the contents of a response and have it available as another dataset that can be used
+
+    for example, I can take a directory listing response of my music directory and exclude all top level files leaving only directories
+    the original response is unmodified and the filtered dataset is a new response
+
+
+    ok, in keeping with #1 and #3 where we have a friendly place to send messages and then re-use responses,
+    this would be a service that takes the last result (like :forward) and transforms it somehow (filter/map/reduce) and returns a new thing
+    
+    given the example, a command list like this might work:
+        :dir-list /my/music/dir
+            => directory-listing shape, files and directories
+        :|filter :only-dirs
+            => directory-listing shape, directories only
+
+5. I can navigate previous responses and mux them into a new one
+
+    for example, I can take the filtered directory listing and *another* filtered directory listing and create a single listing
+    I can then pass this composite result to the 'find-music' command (as per 2)
+    
+    
+    lets ignore interactive navigation of previous responses for now
+    we now need a service that knows how to select and slice the :results-list
+
+    given the example, if there were two previous responses and we wanted a new, composite, third result
+        :dir-list /my/music/dir
+        :dir-list /my/other/music/dir
+        :select -2
+            => selects last two results and returns a new composite result
+
+
+6. I can join responses/content together
+    
+    for example, I've just joined N number of previous results in to a single new result
+    I want a single list of results, not a nested list of results.
+    
+    using the example above, we would get a single list of all music directories in those two directories
+    
+    
+    could this be as a parameter to :select ?
+        :select all :as-one true
+
+    lets avoid parameters to things and keep them shallow.
+    perhaps
+        :|unnest
+    which is better than 'shallow-flatten' I suppose
+    
+    
+----------
+
+
+7. For any response, I can find a list of services that will accept it as input. Even if more inputs are required.
+
+8. For any response+service match, I can send the response to that service and be prompted for missing inputs
+
+9. I can store any result permanently on disk and this store is available on startup
+
+    For example, the results-list is ephemeral and will disappear between application restarts. 
+    I want some results to stick around to examine later. Or to mux with the next day's results.
+    
+
+10. I can take any thing and classify it as a thing
+
+    For example, I can take a list of random strings and call it a 'directory listing'.
+    Such a thing as a 'directory listing' may not exist.
+    Or, a 'directory listing' may exist, but what we were just given isn't what we consider to be a valid directory listing.
+    Because a directory listing has rules and if all of the rules are followed it is valid.
+
+11. I can take any two things and give them a named relationship
+    
+    
+    
