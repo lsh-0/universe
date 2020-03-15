@@ -10,5 +10,8 @@
                  [clj-commons/fs "1.5.0"]
 
                  [clojurewerkz/neocons "3.2.0"] ;; communicate with neo4k
+
+                 [gui-diff "0.6.7"]
+                 
                  ]
   :repl-options {:init-ns universe.main})

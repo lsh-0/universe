@@ -85,8 +85,8 @@
   [topic-kw & [overrides]]
   ;;(info "got topic" topic-kw "message" user-msg "overrides" overrides)
   (message (:message overrides) ;; may be nil
-           {:topic topic-kw
-            :response-chan (async/chan 1)}))
+           (merge {:topic topic-kw
+                   :response-chan (async/chan 1)} overrides)))
 
 (defn internal-request
   "just like `request`, but response is not preserved in `:results-list`.
@@ -223,49 +223,108 @@
 
         :else (filterv predicate last-result)))))
 
+(defn int-or-nil [x]
+  (try
+    (Integer. x)
+    (catch NumberFormatException e
+      nil)))
+
+(defn pos-offset
+  [idx size]
+  (if (neg-int? idx)
+    (let [pos-idx (+ size idx)]
+      (if (neg-int? pos-idx)
+        nil ;; *still* negative
+        pos-idx))
+    idx))
+
+(defn select-range
+  [start end]
+  (let [start (int-or-nil start)
+        end (int-or-nil end)
+
+        _ (info "select range got" start end)
+
+        num-results (count (get-state :results-list))
+
+        ;; if start position is outside of range, die. this is a non-starter
+        start (if (>= start num-results) nil start)
+
+        ;; if end position is outside of range, cap at num-results
+        end (if (>= end num-results) num-results end)
+
+        ;; if start is negative, cap at 0
+        start (pos-offset start num-results)
+
+        end (pos-offset end num-results)
+
+        _ (info "final range" start end "num results" num-results)
+        
+        ]
+    (if (not (and start end))
+      nil ;; range must both be integers
+      (subvec (get-state :results-list) start end))))
+      
+(defn select-idx
+  [idx]
+  (let [num-results (count (get-state :results-list))
+
+        idx (int-or-nil idx)
+
+        ;; handle too-large positive indices and negative indices
+        ;; assume user is using zero-based counting
+        idx (cond
+              ;; further comparisons require integers
+              (nil? idx) nil
+
+              ;; when given index is greater than (or equal to) number of results, cap it at number of results
+              (>= idx num-results) (dec num-results) ;; decrement because indices are zero-based
+
+              ;; when given index is negative, subtract from total results to get a positive index
+              (neg-int? idx) (let [pos-idx (+ num-results idx)] ;; 12 + -2 = 10; 12 + -20 = -8
+                               (if (neg-int? pos-idx)
+                                 0 ;; *still* negative! cap at zero
+                                 pos-idx))
+
+              ;; positive int within range or zero
+              :else idx)]
+    (when idx
+      (nth (get-state :results-list) idx))))
+
 (defn selecter
+  "inspects message and then calls either select-idx or select-range"
   [msg]
   (let [known-selectors {"all" identity}
-        selector (:message msg)
+        selector (:message msg) ;; same as `start`
+        [start end] (take 2 (:args msg))]
+    (info "got args" (:args msg))
+    (cond
+      ;; select what?? returning nothing
+      (nil? selector) nil
 
-        int-or-nil (fn [x]
-                     (try
-                       (Integer. x)
-                       (catch NumberFormatException e
-                         nil)))
+      ;; human readable cases
+      (contains? known-selectors selector) ((known-selectors selector) (get-state :results-list))
 
-        all-results (get-state :results-list)
-        num-results (count all-results)
+      ;; we have a range
+      (and start end) (select-range start end)
 
-        
-        idx (int-or-nil selector)
-        idx (cond
-              (pos-int? idx) (when-not (> idx num-results)
-                               idx)
+      ;; we just a start/idx/selector
+      :else (select-idx start))))
 
-              (neg-int? idx) (let [neg-idx (- (count all-results) (- idx))]
-                               (when-not (neg-int? neg-idx)
-                                 neg-idx))
+(defn repeater
+  [msg]
+  (if-let [body (:message msg)]
+    body
+    (-> (get-state :results-list) last)))
 
-              ;; zero
-              :else idx)]
-    (when selector
-      (cond
-        ;; bogus input, returning nothing
-        (nil? selector) nil
-
-        ;; human readable cases
-        (contains? known-selectors selector) ((known-selectors selector) all-results)
-
-        ;; todo: slicing by pattern. 1-2,1-*,-1
-        
-        ;; lastly, try indexing straight into the results
-
-        ;; given index couldn't be coerced or was too positive or too negative. return nothing
-        (nil? idx) nil
-        
-
-        :else (.get all-results idx)))))
+(defn unnester
+  [msg]
+  (let [last-resp (-> (get-state :results-list) last)
+        last-resp (if (sequential? last-resp) last-resp [last-resp])] ;; :foo => [:foo]
+    (reduce (fn [a b]
+              (if (sequential? b)
+                (into a b)
+                (conj a b))) [] last-resp)))
 
 ;; todo: services that:
 ;; * change log level
@@ -280,7 +339,9 @@
    {:id :echo-actor :service (echo :info)} ;; off-topic echo
    {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing
 
-   {:id :repeat-actor :topic :repeat :service :message} ;; for testing
+   {:id :repeat-actor :topic :repeat :service repeater} ;; for testing
+
+   {:id :unnest-actor, :topic :unnest, :service unnester}
    
    ;;{:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}
    ])

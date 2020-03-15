@@ -124,5 +124,33 @@
             ]
         (is (= expected results)))))
 
+  (testing "the 'unnest' service takes the last result and does a shallow flatten on it IF it is a collection"
+    (with-running-app
+      (let [results (cli/start {:prompt? false
+                                :command-list [":repeat hi"    
+                                               ":repeat there" 
+                                               ":select all"
+                                               ":repeat"
+                                               ":select -2 99"
+                                               ":unnest"
+
+                                               ]})
+            expected {:options {:prompt? false
+                                :command-list [":repeat hi"
+                                               ":repeat there"
+                                               ":select all"
+                                               ":repeat"
+                                               ":select -2 99"
+                                               ":unnest"
+                                               ]}
+                      :command-history [[":repeat hi" "hi"]
+                                        [":repeat there" "there"]
+                                        [":select all" ["hi" "there"]]
+                                        [":repeat" ["hi" "there"]]
+                                        [":select -2 99" [["hi" "there"] ["hi" "there"]]]
+                                        [":unnest" ["hi" "there" "hi" "there"]]]
+                      }
+            ]
+        (is (= expected results)))))
 
   )

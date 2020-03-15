@@ -3,6 +3,7 @@
   (:require
    [clojure.test]
    [taoensso.timbre :as logging :refer [log debug info warn error spy]]
+   [gui.diff :refer [with-gui-diff]]
    [universe
     [core :as core]]))
 
@@ -53,13 +54,14 @@
   (clojure.tools.namespace.repl/refresh) ;; reloads all namespaces, including test ones
   (try
     (logging/set-level! :debug)
-    (if ns-kw
-      (if (some #{ns-kw} [:main :core :cli])
-        (if fn-kw
-          ;; `test-vars` will run the test but not give feedback if test passes OR test not found
-          (clojure.test/test-vars [(resolve (symbol (str "universe." (name ns-kw) "-test") (name fn-kw)))])
-          (clojure.test/run-all-tests (re-pattern (str "universe." (name ns-kw) "-test"))))
-        (error "unknown test file:" ns-kw))
-      (clojure.test/run-all-tests #"universe\..*-test"))
+    (with-gui-diff
+      (if ns-kw
+        (if (some #{ns-kw} [:main :core :cli])
+          (if fn-kw
+            ;; `test-vars` will run the test but not give feedback if test passes OR test not found
+            (clojure.test/test-vars [(resolve (symbol (str "universe." (name ns-kw) "-test") (name fn-kw)))])
+            (clojure.test/run-all-tests (re-pattern (str "universe." (name ns-kw) "-test"))))
+          (error "unknown test file:" ns-kw))
+        (clojure.test/run-all-tests #"universe\..*-test")))
     (finally
       (logging/set-level! :info))))

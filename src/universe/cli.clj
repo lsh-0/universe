@@ -51,10 +51,12 @@
     (let [tokens (parse user-input)
           topic-kw (-> tokens first (subs 1) keyword) ;; [":echo" ...] => :echo
           args (rest tokens)
+
           ;; a single argument after a topic is allowed, otherwise it has to be an even number of forms
-          kwargs (if (= (count args) 1)
-                   {:message (first args)}
-                   (core/seq-to-map args))
+          kwargs {:message (first args) ;; nil if no args other than topic-kw
+                  :args (vec args) ;; order of args are preserved
+                  :kwargs (core/seq-to-map args)}
+          
           request (core/request topic-kw kwargs)]
       (cond
         ;; couldn't parse rest of tokens, fail rather than persevere
