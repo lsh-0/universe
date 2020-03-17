@@ -92,6 +92,32 @@
 
 7. For any response, I can find a list of services that will accept it as input. Even if more inputs are required.
 
+    this is a big task, I blanche everytime I read it.
+
+    - every service will need to advertise it's arguments or be introspectable enough to nab them
+    - every service will need to be specced
+    - we'll lose a lot of the flexibility that comes with having a service be a simple function accepting a message
+        - and services accept messages, not responses!
+    - can this be something that is layered on top of existing message-based services?
+        - for example, a service is registered with an optional parser
+            - the parser takes a message and produces an output of it's advertised type or nil
+            - if nil, the next parser is tried
+            - if no parsers succeed, the message is discarded
+            - otherwise, the parsed args are provided in the message and the message passed to the service
+        - so, this is akin to dispatch or a single function having multiple signatures?
+            - ok, ignore multiple parsers, just have a single parser per service
+                - like a :pre metadata function?
+                    - lets stay away from metadata
+            - then we have a service and a preprocessor that advertises it's services
+                - it's not even a 'preprocessor', it's a simple predicate that, given a bit of data returns true if the service will accept it
+                    - and by default all services accept any input
+                        
+    - so, every service can now specify a function that returns true or false if it can parse the given input
+        - it is true by default
+        - it may use spec, it may not
+        - it is not intended to replace message parsing 
+        - it is intended to be a quick yes or no 
+
 8. For any response+service match, I can send the response to that service and be prompted for missing inputs
 
 9. I can store any result permanently on disk and this store is available on startup

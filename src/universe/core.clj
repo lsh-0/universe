@@ -9,6 +9,10 @@
 
 ;; utils
 
+(defn in?
+  [needle haystack]
+  (not (nil? (some #{needle} haystack))))
+
 (defn mk-id
   []
   (str (java.util.UUID/randomUUID)))
@@ -71,19 +75,21 @@
 (defn message
   "creates a simple message that will go to those listening to the 'off-topic' topic by default"
   [user-msg & [overrides]]
-  (merge
-   {:type :message
-    :id (mk-id)
-    :topic :off-topic
-    :message user-msg ;; absolutely anything
-    :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
-    :internal? false
-    } overrides))
+  (let [;; messages to these services will always be marked as 'internal' unless overridden
+        internal-services [:apply-service]
+        internal? (in? (:topic overrides) internal-services)]
+    (merge
+     {:type :message
+      :id (mk-id)
+      :topic :off-topic
+      :message user-msg ;; absolutely anything
+      :response-chan nil ;; a channel is supplied if the message sender wants to receive a response
+      :internal? internal?
+      } overrides)))
 
 (defn request
   "requests are messages with a response channel"
   [topic-kw & [overrides]]
-  ;;(info "got topic" topic-kw "message" user-msg "overrides" overrides)
   (message (:message overrides) ;; may be nil
            (merge {:topic topic-kw
                    :response-chan (async/chan 1)} overrides)))
@@ -153,7 +159,8 @@
         ;; when there is a result, add it to the results list
         ;; todo: the size of this could get out of hand for long running programs. perhaps limit size to N items
         (when (and result
-                   (not (:internal? result)))
+                   ;;(not (:internal? result))) ;; ... hang on. why are we pulling 'internal?' from the *result* ?
+                   (not (:internal? msg)))
           (info "actor" actor "result" result)
           (swap! state update-in [:results-list] conj result))
 
@@ -326,24 +333,45 @@
                 (into a b)
                 (conj a b))) [] last-resp)))
 
+(defn apply-service-service
+  [msg]
+  (let [last-resp (-> (get-state :results-list) last)
+
+        default-predicate some? ;; anything but nil
+        
+        accepts? (fn [service]
+                   (when ((:accept-pred service default-predicate) last-resp)
+                     (:topic service)))
+
+        supported-services(->> (get-state :service-list)
+                               (map accepts?)
+                               (remove nil?)
+                               distinct
+                               vec)]
+    (if-not (empty? supported-services)
+      supported-services
+      nil)))
+
 ;; todo: services that:
 ;; * change log level
 ;; * store relationships in persistant storage
 ;; * 
 (def service-list
-  [{:id :writer-actor :topic :write-file :service file-writer}
-   {:id :forwarder :topic :|forward :service forwarder}
-   {:id :filterer :topic :|filter :service filterer}
-   {:id :selecter :topic :select :service selecter}
+  [{:id :writer-actor, :topic :write-file, :service file-writer}
+   {:id :forwarder, :topic :|forward, :service forwarder}
+   {:id :filterer, :topic :|filter, :service filterer}
+   {:id :selecter, :topic :select, :service selecter}
 
-   {:id :echo-actor :service (echo :info)} ;; off-topic echo
-   {:id :echo-actor :topic :echo :service (echo :debug)} ;; for testing
+   {:id :echo-actor, :service (echo :info), :accept-pred any?} ;; off-topic echo
+   {:id :echo-actor, :topic :echo, :service (echo :debug), :accept-pred any?} ;; for testing
 
-   {:id :repeat-actor :topic :repeat :service repeater} ;; for testing
+   {:id :repeat-actor, :topic :repeat, :service repeater} ;; for testing
 
    {:id :unnest-actor, :topic :unnest, :service unnester}
    
    ;;{:id :slow-actor :service (wait 5) :input-chan (async/chan (async/buffer 5))}
+
+   {:id :apply-service-actor, :topic :apply-service, :service apply-service-service, :accept-pred any?}
    ])
 
 ;; bootstrap
@@ -356,7 +384,7 @@
 (defn register-service
   "services are just actors waiting around for stuff they're interested in and then doing it"
   [service-map]
-  (let [actor-overrides (select-keys service-map [:id :input-chan])
+  (let [actor-overrides (select-keys service-map [:id :input-chan :topic :accept-pred])
         new-actor (actor (:service service-map) actor-overrides)
 
         ;; unfinished thought: service-map allows you to specify an actor, multiple topics and for each topic a further list of filters
