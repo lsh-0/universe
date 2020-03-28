@@ -1,5 +1,14 @@
 (ns universe.utils)
 
+(defn in?
+  [needle haystack]
+  (not (nil? (some #{needle} haystack))))
+
+(defn mk-id
+  []
+  (java.util.UUID/randomUUID))
+
+
 (defn string-filter
   [pred string]
   (clojure.string/join "" (map #(pred (str %)) (vec string))))
