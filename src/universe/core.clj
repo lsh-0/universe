@@ -23,6 +23,9 @@
    :publication nil ;; async/pub, sends messages to subscribers, if any
    :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
    :service-list [] ;; list of known services. each service is a map, each map has a function
+   ;; a service can store things in state, just not at the top level
+   :service-state {:db {:storage-dir "crux-store" ;; set to nil for in-memory store only (faster testing)
+                        }} 
    :results-list [] ;; list of non-nil responses to requests
    :last-session nil ;; list of non-nil responses to requests from *previous* running app
    :known-topics #{} ;; set of all known available topics
@@ -41,6 +44,15 @@
       (get-in @state path)
       @state)
     (error "application has not been started, cannot access path:" path)))
+
+(defn get-service-state
+  [service-id-kw & path]
+  (apply get-state (concat [:service-state service-id-kw] path)))
+
+;; todo: update-service-state that accepts an update fn
+(defn set-service-state
+  [service-id-kw key val]
+  (swap! state assoc-in [:service-state service-id-kw key] val))
 
 (defn add-cleanup
   [f]
@@ -199,6 +211,11 @@
         
         topic-kw (get service-map :topic :off-topic)
 
+        ;; a service can do a once-off thing before it starts listening
+        ;; todo: add complementary `:close-fn` ? no, that can be done by :cleanup
+        _ (when-let [init-fn (get service-map :init-fn)]
+            (init-fn))
+
         subscription-polling (add-actor! new-actor topic-kw)
 
         ;; closes the actors input channel and empties any pending items
@@ -226,11 +243,19 @@
 
 (defn init
   "app has been started at this point and state is available to be derefed."
-  [& [service-list]]
+  [& [service-list opt-map]]
   (let [publisher (async/chan)
-        publication (async/pub publisher :topic)]
-    (swap! state merge {:publisher publisher
-                        :publication publication})
+        publication (async/pub publisher :topic)
+
+        state-updates {:publisher publisher
+                       :publication publication}
+
+        ;; a map of initial state values can be passed in at init time that
+        ;; are deep-merged after all other init has happened.
+        ;; note: not sure if `merge-with merge` is best
+        state-updates (merge-with merge state-updates (:initial-state opt-map))]
+
+    (swap! state merge state-updates)
 
     (register-all-services service-list)
 

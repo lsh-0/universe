@@ -207,3 +207,13 @@
             ]
         (is (= expected results))))))
 
+(deftest cli-9
+  (testing ""
+      (let [expected {:options {:prompt? false
+                                :command-list [":repeat hi"]}
+                      :command-history [[":repeat hi" "hi"]]}]
+        (with-running-app
+          (is (nil? (core/get-state :last-session)))
+          (is (= expected (cli/start {:prompt? false :command-list [":repeat hi"]}))))
+        (with-running-app
+          (is (= expected (core/get-state :last-session)))))))

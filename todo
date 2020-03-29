@@ -118,13 +118,107 @@
         - it is not intended to replace message parsing 
         - it is intended to be a quick yes or no 
 
-8. For any response+service match, I can send the response to that service and be prompted for missing inputs
+8. ~For any response+service match, I can send the response to that service and be prompted for missing inputs~
+
+    'prompted for missing inputs'
+        - that's a little audacious.
+        - it depends on the service signature, which is simply 'msg'
+        - dropping requirement.
+            - the service will fail like usual if all of the arguments are not there
+            - this does mean that those services who rely on on other arguments in the message itself (rather than the body) will break
+    
+    ...
+        - can't I already send the response to that service simply by calling that service without args?
+            - like:
+                :service
+                
+                ?
 
 9. I can store any result permanently on disk and this store is available on startup
 
     For example, the results-list is ephemeral and will disappear between application restarts. 
     I want some results to stick around to examine later. Or to mux with the next day's results.
     
+
+    'some' results. the only state worth saving is the :results-list and possibly the CLI interaction session
+        - ignoring any cli sessions for now, there may still be other data to restore in the future
+            - so a general 'load' and 'save' interface is required that slices and merges the bits of state we're interested in
+        - loading and saving should be tied to application start and stop
+            - on start, load data, if it exists
+            - on stop, preserve data, if it exists
+                - even if empty data wipes out a full list?
+                    - yup
+        - serialisation format?
+            - edn?
+                - we could use read-string I suppose
+            - json?
+                - sure? there is coercing to and from though
+                    - this could be seen as positive pressure to keep data simple
+                    - we'll also be storing deeply nested structures that we won't know how to restore properly from strings
+                        - providing a per-type or per-service deserialiser of results could get bothersome quickly
+            - csv
+                - don't be ridiculous
+            - other
+                - nippy?
+                    - sure? so long as we stick to it's supported data types
+                        - https://github.com/ptaoussanis/nippy#deserializing
+            - database?
+                - sqlite/sql?
+                    - same as json I suppose, except worse as we would have database tables
+                        - we could store everything flat, but then, why even bother
+                - neo4j
+                    - is is java based
+                    - I do want to do ER stuff in the immediate future
+                    - how much data coercion will there be?
+                    - we have NeoCons and neo4j-clj
+                        - neocons uses HTTP and REST to communicate, authentication
+                            - these are all overheads to an embedded database
+                        - neo4j-clj 
+                            - nobody mentioned neo4j when I brought it up. huh
+
+                - datahike
+                    - datahike is an unstable fork of datascript using a sexy new backend. 
+                    - will leave it alone for the time being
+
+                - datascript
+                    - has queries-as-structs rather than strings
+                    - I guess I want to store a blob of misc data with certain attributes picked out and then recall it all when querying
+                        - and I want this in a node-relationship form so I can search across relations
+
+                - crux
+                    - good vibe. 
+                        - I like the writing style
+                        - I like that it supports a bag of data ('schemaless') that can be queried across
+                        - I like the idea of bi-temporality: valid-time and transaction time
+                            - it's a bit like NiFi and it's data provenance
+                        - I can see how to find things and then fetch the full thing
+                            - https://opencrux.com/docs#_introduction_2
+                            - the two-step fetch is a bit eh, but I may just be used to databases and 'select * where ...' queries
+                        - I'm not sure about the quoted queries vs simple query strings
+                            - but if you are building up queries using data, then quoting makes sense for variables
+                        - no idea on speed or actual practical day to day usage
+                            - maps and lists handling here
+                                - https://opencrux.com/docs#_maps_and_vectors_in_data
+
+                - gremlin+ogre
+                    - gremlin is the query language
+                    - ogre is ... also the query language?
+                        - it's a clojure library that uses gremlin
+                    - tinkerpop is a framework over a graph database
+                    - but I can use ogre by itself for in-memory representations
+                    - ...
+                        - this feels like classic java overengineering and death by a thousand abstractions
+                
+                - asami
+                    - in-memory implementation of a storage protocol called 'Naga'
+                    - Naga allows us to 'load' data and craft rules about the nature of the data to derive new information
+                        - like a predicate logic system
+                    - bit more academic than gremlin+ogre and not what I'm aiming for
+                    
+                    
+                - lets take a closer look at crux
+            
+
 
 10. I can take any thing and classify it as a thing
 

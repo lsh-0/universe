@@ -23,7 +23,7 @@
 
 ;;
 
-(def known-services [:core :basic-services :some-service :poll-service])
+(def known-services [:core :basic-services :some-service :poll-service :store])
 
 (defn stop
   [state]
@@ -34,11 +34,11 @@
     (alter-var-root #'core/state (constantly nil))))
 
 (defn start
-  []
+  [& [opt-map]]
   (if-not core/state
     (do
       (alter-var-root #'core/state (constantly (atom core/-state-template)))
-      (core/init (find-all-services known-services)))
+      (core/init (find-all-services known-services) opt-map))
     (warn "application already started")))
 
 (defn restart

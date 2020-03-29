@@ -12,7 +12,7 @@
 (defmacro with-running-app
   [& form]
   `(try
-     (main/start)
+     (main/start {:initial-state {:service-state {:db {:storage-dir nil}}}})
      ~@form
      (finally
        (main/stop core/state))))

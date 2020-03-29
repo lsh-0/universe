@@ -9,7 +9,8 @@
                  [com.taoensso/timbre "4.10.0"]
                  [clj-commons/fs "1.5.0"]
 
-                 [clojurewerkz/neocons "3.2.0"] ;; communicate with neo4k
+                 [juxt/crux-core "20.03-1.8.0-alpha"]
+                 [juxt/crux-rocksdb "20.03-1.8.0-alpha"]
 
                  [gui-diff "0.6.7"]
                  
