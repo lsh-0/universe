@@ -1,6 +1,7 @@
 (ns universe.store
   (:require
    [taoensso.timbre :refer [log debug info warn error spy]]
+   [me.raynes.fs :as fs]
    [universe
     [core :as core]
     [utils :as utils :refer [mk-id]]]
@@ -16,14 +17,22 @@
 
     ;; in-memory only
     (crux/start-node {:crux.node/topology '[crux.standalone/topology]
-                      :crux.kv/db-dir (str (io/file "crux-store" "db"))})))
+                      :crux.kv/db-dir (str (io/file (fs/temp-dir "universe-crux") "crux-store" "db"))})))
 
 (defn init
   "loads any previous database instance"
   []
   (let [node (start-node (core/get-service-state :db :storage-dir))]
+    ;; causes a slight 1.7ms delay straight out of the box regardless of in-memory or rocksdb backed.
+    ;; thereafter it's very quick.
+    ;; without this call to `sync`, `lein repl` then `(test)` causes indefinite hanging when closing.
+    (crux/sync node) 
     (core/set-service-state :db :node node)
-    (core/add-cleanup #(.close node))))
+    (core/add-cleanup #(try
+                         (.close node)
+                         (catch Exception uncaught-exc
+                           ;; hasn't happened yet
+                           (error uncaught-exc "uncaught unexception attempting to close crux node"))))))
 
 (defn node
   []
