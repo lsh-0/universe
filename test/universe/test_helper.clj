@@ -16,3 +16,11 @@
      ~@form
      (finally
        (main/stop core/state))))
+
+(defmacro with-opts-running-app
+  [opts & form]
+  `(try
+     (main/start ~opts)
+     ~@form
+     (finally
+       (main/stop core/state))))

@@ -2,10 +2,13 @@
   (:require
    [clojure.test :refer :all]
    [taoensso.timbre :refer [log debug info warn error spy]]
+   [me.raynes.fs :as fs]
    [universe
+    [store :as store]
+    [main :as main] ;; can I do this?
     [core :as core]
     [cli :as cli]
-    [test-helper :as test-helper :refer [with-running-app]]]))
+    [test-helper :as test-helper :refer [with-running-app with-opts-running-app]]]))
 
   ;; todo: control initial actors listening for messages
   ;; todo: capture log entries?
@@ -211,9 +214,22 @@
   (testing ""
       (let [expected {:options {:prompt? false
                                 :command-list [":repeat hi"]}
-                      :command-history [[":repeat hi" "hi"]]}]
-        (with-running-app
+                      :command-history [[":repeat hi" "hi"]]}
+
+            ;; the CLI command history isn't preserved between restarts, just the
+            ;; results that made it to the `:results-list`
+            expected-last-session ["hi"]
+
+            temp-dir (fs/temp-dir "universe-test-crux")
+            
+            ]
+        (with-opts-running-app {:initial-state {:service-state {:db {:storage-dir temp-dir}}}}
           (is (nil? (core/get-state :last-session)))
-          (is (= expected (cli/start {:prompt? false :command-list [":repeat hi"]}))))
-        (with-running-app
-          (is (= expected (core/get-state :last-session)))))))
+          (is (= expected (cli/start {:prompt? false :command-list [":repeat hi"]})))
+          
+          (info "stopping")
+          (main/stop core/state)
+          (info "starting with" temp-dir)
+          (main/start {:initial-state {:service-state {:db {:storage-dir temp-dir}}}})
+        
+          (is (= expected-last-session (core/get-state :last-session)))))))

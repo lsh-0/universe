@@ -33,6 +33,32 @@
 
 (def state nil)
 
+;; --
+
+(defn state-bind
+  "executes given callback function when value at path in state map changes. 
+  trigger is discarded if old and new values are identical"
+  [path callback]
+  (let [has-changed (fn [old-state new-state]
+                      (not= (get-in old-state path)
+                            (get-in new-state path)))
+        wid (keyword (gensym callback)) ;; :foo.bar$baz@123456789
+        rmwatch #(remove-watch state wid)]
+
+    (add-watch state wid
+               (fn [_ _ old-state new-state] ;; key, atom, old-state, new-state
+                 (when (has-changed old-state new-state)
+                   (debug (format "path %s triggered %s" path wid))
+                   (try
+                     (callback new-state)
+                     (catch Exception uncaught-exc
+                       (error uncaught-exc "error caught in watch! your callback *must* be catching these or the thread dies silently:" path))))))
+
+    (swap! state update-in [:cleanup] conj rmwatch)
+    nil))
+
+;; --
+
 (defn started?
   []
   (some? state))
