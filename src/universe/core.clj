@@ -7,19 +7,10 @@
    [universe.utils :as utils :refer [in? mk-id]]
    ))
 
-;; utils
-
-(defn seq-to-map
-  "creates a map from an even, sequential, collection of values"
-  [s]
-  (if-not (even? (count s))
-    (error "expected an even number of elements:" s)
-    (->> s (partition 2) (map vec) (into {}))))
-
 ;; state
 
 (def -state-template
-  {:cleanup []
+  {:cleanup [] ;; a list of functions that are called on application stop
    :publication nil ;; async/pub, sends messages to subscribers, if any
    :publisher nil ;; async/chan, `publication` reads from this channel and we write to it
    :service-list [] ;; list of known services. each service is a map, each map has a function
@@ -33,7 +24,7 @@
 
 (def state nil)
 
-;; --
+;;
 
 (defn state-bind
   "executes given callback function when value at path in state map changes. 
@@ -100,6 +91,7 @@
   (if-not (known-topic? topic-kw) :off-topic topic-kw))
 
 (defn safe-message
+  "ensures a message is delivered to a topic. if the specified topic is not being listened to, the message is sent to off-topic"
   [msg]
   (update-in msg [:topic] safe-topic))
 

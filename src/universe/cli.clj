@@ -82,7 +82,7 @@
   x)
 
 (defn read-many-lines
-  "this is good for free-form text. input is returned a list of strings"
+  "this is good for free-form text. input is returned as a list of strings"
   []
   (take-while identity (repeatedly #(read-line))))
 
@@ -94,7 +94,7 @@
   [& [{:keys [prompt? command-list]
        :or {prompt? true, command-list []}}]]
   (when prompt?
-    (println "(ctrl-d to exit, double quotes if you must)"))
+    (println "(ctrl-d to exit, double quotes for quoting)"))
   (loop [cmd-list command-list
          command-history []]
     (let [cmd (or (first cmd-list)

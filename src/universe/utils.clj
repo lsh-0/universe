@@ -1,5 +1,14 @@
 (ns universe.utils)
 
+
+(defn seq-to-map
+  "creates a map from an even, sequential, collection of values"
+  [s]
+  (if-not (even? (count s))
+    (error "expected an even number of elements:" s)
+    (->> s (partition 2) (map vec) (into {}))))
+
+
 (defn in?
   [needle haystack]
   (not (nil? (some #{needle} haystack))))
