@@ -1,4 +1,8 @@
-(ns universe.utils)
+(ns universe.utils
+  (:require
+   [taoensso.timbre :refer [log debug info warn error spy]]
+
+   ))
 
 
 (defn seq-to-map
